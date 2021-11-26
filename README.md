@@ -1,2 +1,2 @@
 # Termo_furnace
-Termo furnace
+Термо печка
