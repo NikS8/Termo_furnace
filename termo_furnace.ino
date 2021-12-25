@@ -3,18 +3,20 @@
                                                       Copyright © 2021, Nik.S
 \*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*\
   Arduino Pro Mini:
-  Скетч использует 9658 байт (31%) памяти устройства. Всего доступно 30720 байт.
-Глобальные переменные используют 727 байт (35%) динамической памяти, 
-оставляя 1321 байт для локальных переменных. Максимум: 2048 байт.
+  Скетч использует 12176 байт (39%) памяти устройства. Всего доступно 30720 байт.
+Глобальные переменные используют 773 байт (37%) динамической памяти, 
+оставляя 1275 байт для локальных переменных. Максимум: 2048 байт.
 /*****************************************************************************\
-   Arduino Pro Mini выдает данные:
+  Arduino Pro Mini:
     цифровые:
-  датчик температуры DS18B20 (pin D8)
+  - реле (pin D5)
+  - кнопка (pin D6)
+  - датчик температуры DS18B20 (pin D8)
 /*****************************************************************************/
 //  Блок DEVICE  --------------------------------------------------------------
 //  Arduino Pro Mini
 #define DEVICE_ID "termo_furnace"
-#define VERSION 1
+#define VERSION 2
 
 //  Блок libraries  -----------------------------------------------------------
 
@@ -26,25 +28,25 @@
 
 //  Блок settings  ------------------------------------------------------------
 
-// Датчик один - не используем адресацию
-#define DS_PIN 8
-MicroDS18B20 <DS_PIN> sensor;
-int tDS18;
-
-#define BTN_PIN 6 // кнопка подключена сюда (BTN_PIN --- КНОПКА ---1К --- GND)
-GButton butt1(BTN_PIN);  
-// HIGH_PULL - кнопка подключена к GND, пин подтянут к VCC 
+#define RELAY_PIN 5
+#define DS18_PIN 8  // Датчик один - не используем адресацию
+MicroDS18B20 <DS18_PIN> sensor;
+int8_t tDS18;
+uint8_t tMax = 39;
+uint8_t tMin = 39;
+#define BUTTON_PIN 6 // кнопка подключена сюда (BUTTON_PIN --- КНОПКА ---1К --- GND)
+GButton butt1(BUTTON_PIN);  
+// HIGH_PULL - кнопка подключена к GND, пин подтянут к VCC (по умолчанию)
 
 // примеры:
 //GyverOLED<SSD1306_128x64, OLED_BUFFER> oled;
 GyverOLED<SSD1306_128x64, OLED_NO_BUFFER> oled;
 
-int pinRelay  = 5;
 
-int tMax = 39;
-int tMin = 39;
-int statusOled = 0;
-uint32_t tmr ;
+uint8_t statusOled = 0;
+uint8_t nHour = 1;
+int32_t timeLeft;
+uint32_t timerVal ;
 
 //  end init  -----------------------------------------------------------------
 
@@ -55,12 +57,11 @@ void setup() {
 
   Serial.begin(9600);
 
-  pinMode(pinRelay, OUTPUT); // инициализируем что выход
-  //pinMode(BTN_PIN, INPUT_PULLUP); // инициализируем что вход,
+  pinMode(RELAY_PIN, OUTPUT); // инициализируем что выход
+  //pinMode(BUTTON_PIN, INPUT_PULLUP); // инициализируем что вход,
 
   oled.init();  // инициализация
-  // настройка скорости I2C
-  //Wire.setClock(800000L);   // макс. 800'000
+  // настройка скорости I2C //Wire.setClock(800000L);   // макс. 800'000
 
   // --------------------------
   oled.clear();   // очистить дисплей (или буфер)
@@ -101,9 +102,10 @@ void loop() {
 
   sensor.requestTemp();
 
-  if (butt1.isStep(1))           // один клик + удержание
+  ///////   кнопка
+  if (butt1.isDouble())         // проверка на двойной клик
   {
-    tmr = millis();
+    timerVal = millis();
     if (statusOled == 0)
     {
       oled.setPower(true);    // true/false - включить/выключить дисплей
@@ -112,7 +114,7 @@ void loop() {
     }
   }
 
-  if (millis() - tmr < 22000)
+  if (millis() - timerVal < 22000)
   {
     if (statusOled == 1)
     {
@@ -120,9 +122,6 @@ void loop() {
       Serial.println("Включить дисплей");
       statusOled = 0;
     }
-
-
-    ///////   кнопка
 
     if (butt1.isSingle())         // проверка на один клик
     {
@@ -135,6 +134,13 @@ void loop() {
       Serial.print("   tMax увеличить");
       tMax++;// увеличивать переменную value с шагом и интервалом
     }
+
+  if (butt1.isStep(1))           // один клик + удержание
+    {
+      Serial.println(" Знаачение nHour увеличить");
+      nHour++;
+    }
+
   }
   else
   {
@@ -146,19 +152,27 @@ void loop() {
     }
   }
 
-
   ///////   реле
-  if (digitalRead(pinRelay) == LOW && tDS18 < tMin)
+    timeLeft = 3600000 * nHour - millis();
+
+  if (timeLeft > 11)
   {
-    digitalWrite(pinRelay, HIGH);    // пишется высокий уровень вкл
+  
+  if (digitalRead(RELAY_PIN) == LOW && tDS18 < tMin)
+  {
+    digitalWrite(RELAY_PIN, HIGH);    // пишется высокий уровень вкл
   }
 
-  if (digitalRead(pinRelay) == HIGH && tDS18 > tMax)
+  if (digitalRead(RELAY_PIN) == HIGH && tDS18 > tMax)
   {
-    digitalWrite(pinRelay, LOW);     // пишется низкий уровень выкл
+    digitalWrite(RELAY_PIN, LOW);     // пишется низкий уровень выкл
   }
-
-
+  }
+  else if (digitalRead(RELAY_PIN) == HIGH)
+  {
+    digitalWrite(RELAY_PIN, LOW);     // пишется низкий уровень выкл
+  }
+  
   ///////   Вывод в Serial
   Serial.print("  +");
   tDS18 = sensor.getTempInt();
@@ -167,8 +181,9 @@ void loop() {
   Serial.print(" tMax = ");
   Serial.println(tMax);
   Serial.println(" ");
+  Serial.println(upTime(millis()));
 
-  /////// дисплей
+  ///////   Вывод на дисплей
   oled.clear();   // очистить дисплей (или буфер)
   oled.setCursor(11, 0);   // курсор в (пиксель X, строка Y)
   oled.setScale(3);
@@ -180,28 +195,39 @@ void loop() {
   oled.setCursor(1, 4);   // курсор в (пиксель X, строка Y)
   oled.setScale(2);
 
-  if (digitalRead(pinRelay) == HIGH )
+  if (digitalRead(RELAY_PIN) == HIGH )
   {
-    oled.print( "   Нагрев");
-    oled.setScale(0);
-    oled.setCursor(30, 7);   // курсор в (пиксель X, строка Y)
     oled.print(tMin - 1);
-    oled.print("   >>>   ");
+    oled.setScale(1);
+    oled.print( "    Нагрев   ");
+    oled.setScale(2);
     oled.print(tMax + 1);
   }
 
-  if (digitalRead(pinRelay) == LOW )
+  if (digitalRead(RELAY_PIN) == LOW )
   {
-    oled.print( " Остывание");
-    oled.setScale(0);
-    oled.setCursor(30, 7);   // курсор в (пиксель X, строка Y)
-    oled.print(tMin - 1);
-    oled.print("   <<<   ");
     oled.print(tMax + 1);
+    oled.setScale(1);
+    oled.print( "  Остывание  ");
+    oled.setScale(2);
+    oled.print(tMin - 1);
   }
 
-  ///////////////////////////////////////////
-
+    oled.setScale(1);
+    oled.setCursor(4, 7);   // курсор в (пиксель X, строка Y)
+    oled.print(upTime(millis()));
+    oled.setCursor(74, 7);   // курсор в (пиксель X, строка Y)
+      if (timeLeft > 0)
+      {
+        oled.print(upTime(timeLeft));
+      }
+      else
+      {
+        timeLeft = 0 - timeLeft;
+        oled.print("- ");
+        oled.print(upTime(timeLeft));
+      }
+      
 }
 
 /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*\
